@@ -382,8 +382,7 @@ def write_symtab(str_table, symbol_table, output):
 
 
 if __name__ == '__main__':
-    # input_file, output_file = sys.argv[1:]
-    input_file, output_file = r'test_data/test_elf', 1
+    input_file, output_file = sys.argv[1:]
     output = open(output_file, 'w')
 
     elf_header, str_table, symbol_table, instructions = parse_elf_file(input_file)
