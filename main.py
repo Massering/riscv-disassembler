@@ -1,7 +1,4 @@
-import random
 import sys
-import struct
-from io import TextIOWrapper
 
 from constants import *
 from util import *
@@ -14,146 +11,113 @@ def disassemble_instruction(instruction: bytes):
     if len(com) < 32:
         return INVALID_INSTRUCTION
 
-    # print(com)
-    opcode = int(com[-7:], 2)
+    opcode = com[-7:]
 
-    OPCODES = {  # ={ - это я.
-        0b0000011: 'LOAD',  #
-        0b0001111: 'MISC-MEM',  #
-        0b0010011: 'OP-IMM',  #
-        0b0010111: 'AUIPC',  #
-        0b0100011: 'STORE',  #
-        0b0110011: 'OP',  #
-        0b0110111: 'LUI',  #
-        0b1100011: 'BRANCH',  #
-        0b1100111: 'JALR',  #
-        0b1101111: 'JAL',  #
-        0b1110011: 'SYSTEM'  #
-    }
-
-    if opcode not in OPCODES:
-        return INVALID_INSTRUCTION
-
-    opname = OPCODES[opcode]
-    if opname == 'LUI':
+    if opcode == '0110111':    # 'LUI':
         imm, rd = com[:-12], com[-12:-7]
-        return PATTERN_2_ARGS, 'lui', rd, imm
+        return PATTERN_LUI_AUIPC, 'lui', REGISTERS[rd], int(imm, 2)
 
-    elif opname == 'AUIPC':
+    elif opcode == '0010111':    # 'AUIPC':
         imm, rd = com[:-12], com[-12:-7]
-        return PATTERN_2_ARGS, 'auipc', rd, imm
+        return PATTERN_LUI_AUIPC, 'auipc', REGISTERS[rd], int(imm, 2)
 
-    elif opname == 'JAL':
+    elif opcode == '1101111':    # 'JAL':
         imm, rd = com[:-12], com[-12:-7]
-        return PATTERN_2_ARGS, 'jal', rd, imm
+        imm = imm[0] * 12 + imm[12:20] + imm[11] + imm[:11] + '0'
+        return PATTERN_J_LABEL, 'jal', REGISTERS[rd], int(imm, 2), '<>'
 
-    elif opname == 'JALR':
+    elif opcode == '1100111':    # 'JALR':
         imm, rs1, func3, rd = com[:12], com[12:-15], com[-15:-12], com[-12:-7]
+        return PATTERN_LOAD_STORE_JALR, 'jalr', REGISTERS[rd], int(imm, 2), REGISTERS[rs1]
 
-        #                                                   TODO: imm(rs1)
-        return PATTERN_LOAD_STORE_JALR, 'jalr', rd, imm
-
-    elif opname == 'BRANCH':
-        imm1, rs2, rs1, func3, imm2 = com[:6], com[6:12], com[12:-15], com[-15:-12], com[-12:-7]
+    elif opcode == '1100011':    # 'BRANCH':
+        _, rs2, rs1, func3, _ = com[:-25], com[-25:-20], com[-20:-15], com[-15:-12], com[-12:-7]
         ops = {
-            0b000: 'beq',
-            0b001: 'bne',
-            0b100: 'blt',
-            0b101: 'bge',
-            0b110: 'bltu',
-            0b111: 'bgeu'
+            '000': 'beq',
+            '001': 'bne',
+            '100': 'blt',
+            '101': 'bge',
+            '110': 'bltu',
+            '111': 'bgeu'
         }
-        #                                                           TODO: pcrel_13
-        return PATTERN_B_LABEL, ops[int(func3, 2)], rs2, rs1, imm1
+        imm = com[0] * 20 + com[-8] + com[1:7] + com[-12:-8] + '0'
+        return PATTERN_B_LABEL, ops[func3], REGISTERS[rs1], REGISTERS[rs2], int(imm, 2), '<>'
 
-    elif opname == 'LOAD':
-        imm, rs1, func3, rd = com[:12], com[12:-15], com[-15:-12], com[-12:-7]
+    elif opcode == '0000011':    # 'LOAD':
+        imm, rs1, func3, rd = com[:-20], com[-20:-15], com[-15:-12], com[-12:-7]
         ops = {
-            0b000: 'lb',
-            0b001: 'lh',
-            0b010: 'lw',
-            0b100: 'lbu',
-            0b101: 'lhu',
+            '000': 'lb',
+            '001': 'lh',
+            '010': 'lw',
+            '100': 'lbu',
+            '101': 'lhu',
         }
-        #                                                            TODO: imm(rs1)
-        return PATTERN_LOAD_STORE_JALR, ops[int(func3, 2)], rd, imm
+        return PATTERN_LOAD_STORE_JALR, ops[func3], REGISTERS[rd], int(imm, 2), REGISTERS[rs1]
 
-    elif opname == 'STORE':
-        imm, rs2, rs1, func3, imm2 = com[:6], com[6:12], com[12:-15], com[-15:-12], com[-12:-7]
+    elif opcode == '0100011':    # 'STORE':
+        imm, rs2, rs1, func3, imm2 = com[:-25], com[-25:-20], com[-20:-15], com[-15:-12], com[-12:-7]
         ops = {
-            0b000: 'sb',
-            0b001: 'sh',
-            0b010: 'sw',
+            '000': 'sb',
+            '001': 'sh',
+            '010': 'sw'
         }
-        #                                                                TODO: imm(rs1)
-        return PATTERN_LOAD_STORE_JALR, ops[int(func3, 2)], rs2, imm
+        return PATTERN_LOAD_STORE_JALR, ops[func3], REGISTERS[rs2], int(imm2, 2), REGISTERS[rs1]
 
-    elif opname == 'OP-IMM':
-        imm, rs1, func3, rd = com[:12], com[12:-15], com[-15:-12], com[-12:-7]
-        opcode2, shamt = com[:7], com[7:12]
-        ops_map = {
-            0b0000000: {
-                0b001: 'slli',
-                0b101: 'srli'
-            },
-            0b0100000: {
-                0b101: 'srai'
-            }
-        }
-        if int(opcode2, 2) in ops_map:
-            ops = ops_map[int(opcode2, 2)]
-            if int(func3, 2) not in ops:
-                return INVALID_INSTRUCTION
-            return PATTERN_2_ARGS, ops[int(func3, 2)], rd, rs1, shamt
-        else:
-            ops = {
-                0b000: 'addi',
-                0b010: 'slti',
-                0b011: 'sltiu',
-                0b100: 'xori',
-                0b110: 'ori',
-                0b111: 'andi',
-            }
-            if int(func3, 2) not in ops:
-                return INVALID_INSTRUCTION
-            return PATTERN_2_ARGS, ops[int(func3, 2)], rd, rs1, imm
+    elif opcode == '0010011':    # 'OP-IMM':
+        imm, rs1, func3, rd = com[:-20], com[-20:-15], com[-15:-12], com[-12:-7]
 
-    elif opname == 'OP':
-        opcode2, rs2, rs1, func3, rd = com[:7], com[7:12], com[12:-15], com[-15:-12], com[-12:-7]
-        ops_map = {
-            0b0000000: {
-                0b000: 'add',
-                0b001: 'sll',
-                0b010: 'slt',
-                0b011: 'sltu',
-                0b100: 'xor',
-                0b101: 'srl',
-                0b110: 'or',
-                0b111: 'and',
-            },
-            0b0100000: {
-                0b000: 'sub',
-                0b101: 'sra'
-            },
-            # RV32M Standard Extension
-            0b0000001: {
-                0b000: 'mul',
-                0b001: 'mulh',
-                0b010: 'mulhsu',
-                0b011: 'mulhu',
-                0b100: 'div',
-                0b101: 'divu',
-                0b110: 'rem',
-                0b111: 'remu',
-            }
+        ops = {
+            '000': 'addi',
+            '010': 'slti',
+            '011': 'sltiu',
+            '100': 'xori',
+            '110': 'ori',
+            '111': 'andi',
         }
-        if int(opcode2, 2) in ops_map:
-            ops = ops_map[int(opcode2, 2)]
-            return PATTERN_2_ARGS, ops[int(func3, 2)], rd, rs1, rs2
+        if func3 in ops:
+            return PATTERN_2_ARGS, ops[func3], REGISTERS[rd], REGISTERS[rs1], to_int(imm)
         else:
             return INVALID_INSTRUCTION
 
-    elif opname == 'MISC-MEM':
+    elif opcode == '0110011':    # 'OP':
+        opcode2, rs2, rs1, func3, rd = com[:7], com[7:12], com[12:-15], com[-15:-12], com[-12:-7]
+        ops_map = {
+            '0000000': {
+                '000': 'add',
+                '001': 'sll',
+                '010': 'slt',
+                '011': 'sltu',
+                '100': 'xor',
+                '101': 'srl',
+                '110': 'or',
+                '111': 'and',
+            },
+            '0100000': {
+                '000': 'sub',
+                '101': 'sra'
+            },
+            # RV32M Standard Extension
+            '0000001': {
+                '000': 'mul',
+                '001': 'mulh',
+                '010': 'mulhsu',
+                '011': 'mulhu',
+                '100': 'div',
+                '101': 'divu',
+                '110': 'rem',
+                '111': 'remu',
+            }
+        }
+        if opcode2 in ops_map:
+            ops = ops_map[opcode2]
+            if func3 in ops:
+                return PATTERN_2_ARGS, ops[func3], REGISTERS[rd], REGISTERS[rs1], REGISTERS[rs2]
+            else:
+                return INVALID_INSTRUCTION
+        else:
+            return INVALID_INSTRUCTION
+
+    elif opcode == '0001111':    # 'MISC-MEM':
         fm, pred, succ, rs1, func3, rd = com[:4], com[4:8], com[8:12], com[12:-15], com[-15:-12], com[-12:-7]
 
         if com == '1000' + '0011' + '0011' + '00000' + '000' + '00000' + '0001111':
@@ -161,14 +125,16 @@ def disassemble_instruction(instruction: bytes):
         elif com == '0000' + '0001' + '0000' + '00000' + '000' + '00000' + '0001111':
             return PATTERN_NO_ARGS, 'pause'
         else:
-            return PATTERN_FENCE, 'fence', succ, pred
+            s = 'i' * int(succ[0]) + 'o' * int(succ[1]) + 'r' * int(succ[2]) + 'w' * int(succ[3])
+            p = 'i' * int(pred[0]) + 'o' * int(pred[1]) + 'r' * int(pred[2]) + 'w' * int(pred[3])
+            return PATTERN_FENCE, 'fence', s, p
 
-    elif opname == 'SYSTEM':
+    elif opcode == '1110011':    # 'SYSTEM':
         opcode2, rs1, func3, rd = com[:12], com[12:-15], com[-15:-12], com[-12:-7]
 
-        if int(opcode2, 2) == 0:
+        if opcode2 == '000000000000':
             return PATTERN_NO_ARGS, 'ecall'
-        elif int(opcode2, 2) == 1:
+        elif opcode2 == '000000000001':
             return PATTERN_NO_ARGS, 'ebreak'
         else:
             return INVALID_INSTRUCTION
@@ -241,18 +207,19 @@ def parse_elf_file(file_path) -> (dict, bytes, list, list):
         #           SHT_PROGBITS             SHF_ALLOC+SHF_EXECINSTR
         if i['sh_type'] == 1 and i['sh_flags'] == 0x2 + 0x4:
             instructions = parse_text_section(file_path, i)
+            text_header = i
             break
     else:
         raise LookupError('No text section found')
 
-    return elf_header, str_table, symbol_table, instructions
+    return elf_header, str_table, symbol_table, instructions, text_header
 
 
 def parse_strtab_section(file_path, header: dict):
     with open(file_path, 'rb') as file:
         file.seek(header['sh_offset'])
         #                                 TODO: костыль
-        return file.read(header['sh_size'] + 100)
+        return file.read()
 
 
 def parse_symtab_section(file_path, header) -> [dict, ..., dict]:
@@ -275,26 +242,60 @@ def parse_symtab_section(file_path, header) -> [dict, ..., dict]:
 
 
 def parse_text_section(file_path, header):
+    # print(header)
     instructions = []
     with open(file_path, 'rb') as file:
         file.seek(header['sh_offset'])
-        for _ in range(header['sh_size'] // 4):
+        for i in range(header['sh_size'] // 4):
             byte_instr = file.read(4)[::-1]
+            # print(i, end=' ', file=output)
             instr = disassemble_instruction(byte_instr)
-            instructions.append(instr)
+            instructions.append((int.from_bytes(byte_instr, 'big'),) + instr)
+            # print(instr, file=output)
+            # print(file=output)
     return instructions
 
 
-def write_disassembly(str_table, symbol_table, instructions, output):
-    for i in instructions:
-        # TODO
-        if i == INVALID_INSTRUCTION:
-            print(i, file=output)
+def write_disassembly(str_table, symbol_table, instructions, text_header, output):
+    symbols = {}
+    for i in symbol_table:
+        symbols[i['st_value']] = read_while_not_null(str_table, i['st_name'])
+
+    cur_address = text_header['sh_addr']
+    formatted_instructions = []
+    labels = []
+    unnamed_label_index = 0
+    for i in range(len(instructions)):
+        hex_pres, pattern, *args = instructions[i]
+        if pattern == INVALID_INSTRUCTION:
+            formatted_instructions.append(pattern[0])
+
         else:
             try:
-                print(i[0] % (random.randint(0, 0xffff), random.randint(0, 0xfffff), *i[1:]), file=output)
-            except:
-                print(INVALID_INSTRUCTION, file=output)
+                if args[-1] == '<>':
+                    label_addr = (args[-2] + cur_address) % (1 << 20)
+                    if label_addr in symbols:
+                        label_name = symbols[label_addr]
+                    else:
+                        label_name = f'L{unnamed_label_index}'
+                        unnamed_label_index += 1
+                    labels.append((label_addr, label_name))
+                    args[-1] = label_name
+                    args[-2] = label_addr
+                formatted_instructions.append(pattern % (cur_address, hex_pres, *args))
+                cur_address += 4
+
+            except Exception as err:
+                # print(err, pattern, args, file=output)
+                formatted_instructions.append(INVALID_INSTRUCTION)
+
+    labels.sort(reverse=True)
+    cur_address: int = text_header['sh_addr']
+    for i in formatted_instructions:
+        if labels and labels[-1][0] == cur_address:
+            print(PATTERN_LABEL % labels.pop(), file=output)
+        print(i, file=output)
+        cur_address += 4
 
 
 def parse_section_header(file_path, offset):
@@ -382,11 +383,14 @@ def write_symtab(str_table, symbol_table, output):
 
 
 if __name__ == '__main__':
-    input_file, output_file = sys.argv[1:]
+    # input_file, output_file = sys.argv[1:]
+    # input_file, output_file = r'test_data/test_elf', r'test_data/ref_disasm.txt'
+    input_file, output_file = r'test_data/test.elf', r'test_data/test.disasm.txt'
+    # input_file, output_file = r'test_data/test2.elf', r'test_data/test2.disasm.txt'
     output = open(output_file, 'w')
 
-    elf_header, str_table, symbol_table, instructions = parse_elf_file(input_file)
-    print('.text\n')
-    write_disassembly(str_table, symbol_table, instructions, output)
-    print('\n\n.symtab\n')
+    elf_header, str_table, symbol_table, instructions, text_header = parse_elf_file(input_file)
+    print('.text', file=output)
+    write_disassembly(str_table, symbol_table, instructions, text_header, output)
+    print('\n\n.symtab', file=output)
     write_symtab(str_table, symbol_table, output)

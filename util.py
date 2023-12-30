@@ -14,3 +14,13 @@ def bytes_to_strs(b: bytes):
     for i in b:
         p.append(byte_to_str(i))
     return p
+
+
+def to_int(s):
+    x = 0
+    b = 1
+    for i in range(len(s) - 1):
+        x += int(s[~i], 16) * b
+        b <<= 1
+    x -= b * int(s[0], 16)
+    return x
