@@ -1,19 +1,16 @@
 def printf(pattern, *args):
-    try:
-        return pattern % args
-    except:
-        return 'Error while format: ', '"' + pattern + '"', *args
+    return pattern % args
 
 
-def byte_to_str(b):
-    return bin(b)[2:].zfill(8)
+def byte_to_str(byte):
+    return bin(byte)[2:].zfill(8)
 
 
 def bytes_to_strs(b: bytes):
-    p = []
+    arr = []
     for i in b:
-        p.append(byte_to_str(i))
-    return p
+        arr.append(byte_to_str(i))
+    return arr
 
 
 def to_int(bites_s: str):

@@ -15,18 +15,18 @@ INVALID_INSTRUCTION = ("invalid_instruction",)
 PATTERN_TABLE_HEADER = "\nSymbol Value              Size Type     Bind     Vis       Index Name"
 PATTERN_TABLE_LINE = "[%4i] 0x%-15X %5d %-8s %-8s %-8s %6s %s"
 
-OPCODES = {  # ={ - это я.
-    '0110111': 'LUI',  #
-    '0010111': 'AUIPC',  #
-    '1101111': 'JAL',  #
-    '1100111': 'JALR',  #
-    '1100011': 'BRANCH',  #
-    '0000011': 'LOAD',  #
-    '0100011': 'STORE',  #
-    '0010011': 'OP-IMM',  #
-    '0110011': 'OP',  #
-    '0001111': 'MISC-MEM',  #
-    '1110011': 'SYSTEM'  #
+OPCODES = {
+    '0110111': 'LUI',
+    '0010111': 'AUIPC',
+    '1101111': 'JAL',
+    '1100111': 'JALR',
+    '1100011': 'BRANCH',
+    '0000011': 'LOAD',
+    '0100011': 'STORE',
+    '0010011': 'OP-IMM',
+    '0110011': 'OP',
+    '0001111': 'MISC-MEM',
+    '1110011': 'SYSTEM'
 }
 
 REGISTERS = {
