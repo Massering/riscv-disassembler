@@ -15,20 +15,23 @@ def disassemble_instruction(instruction: bytes):
 
     if opcode == '0110111':    # 'LUI':
         imm, rd = com[:-12], com[-12:-7]
-        return PATTERN_LUI_AUIPC, 'lui', REGISTERS[rd], int(imm, 2)
+        imm_u = imm[0] * 12 + imm
+        return PATTERN_LUI_AUIPC, 'lui', REGISTERS[rd], int(imm_u, 2)
 
     elif opcode == '0010111':    # 'AUIPC':
         imm, rd = com[:-12], com[-12:-7]
-        return PATTERN_LUI_AUIPC, 'auipc', REGISTERS[rd], int(imm, 2)
+        imm_u = imm[0] * 12 + imm
+        return PATTERN_LUI_AUIPC, 'auipc', REGISTERS[rd], int(imm_u, 2)
 
     elif opcode == '1101111':    # 'JAL':
         imm, rd = com[:-12], com[-12:-7]
-        imm = imm[0] * 12 + imm[12:20] + imm[11] + imm[:11] + '0'
-        return PATTERN_J_LABEL, 'jal', REGISTERS[rd], int(imm, 2), '<>'
+        imm_j = com[0] * 12 + com[12:20] + com[11] + com[1:11] + '0'
+        return PATTERN_J_LABEL, 'jal', REGISTERS[rd], to_int(imm_j), '<>'
 
     elif opcode == '1100111':    # 'JALR':
         imm, rs1, func3, rd = com[:12], com[12:-15], com[-15:-12], com[-12:-7]
-        return PATTERN_LOAD_STORE_JALR, 'jalr', REGISTERS[rd], int(imm, 2), REGISTERS[rs1]
+        imm_i = imm[0] * 20 + imm[:12]
+        return PATTERN_LOAD_STORE_JALR, 'jalr', REGISTERS[rd], to_int(imm_i), REGISTERS[rs1]
 
     elif opcode == '1100011':    # 'BRANCH':
         _, rs2, rs1, func3, _ = com[:-25], com[-25:-20], com[-20:-15], com[-15:-12], com[-12:-7]
@@ -40,8 +43,8 @@ def disassemble_instruction(instruction: bytes):
             '110': 'bltu',
             '111': 'bgeu'
         }
-        imm = com[0] * 20 + com[-8] + com[1:7] + com[-12:-8] + '0'
-        return PATTERN_B_LABEL, ops[func3], REGISTERS[rs1], REGISTERS[rs2], int(imm, 2), '<>'
+        imm_b = com[0] * 19 + com[0] + com[-8] + com[1:7] + com[-12:-8] + '0'
+        return PATTERN_B_LABEL, ops[func3], REGISTERS[rs1], REGISTERS[rs2], to_int(imm_b), '<>'
 
     elif opcode == '0000011':    # 'LOAD':
         imm, rs1, func3, rd = com[:-20], com[-20:-15], com[-15:-12], com[-12:-7]
@@ -52,7 +55,8 @@ def disassemble_instruction(instruction: bytes):
             '100': 'lbu',
             '101': 'lhu',
         }
-        return PATTERN_LOAD_STORE_JALR, ops[func3], REGISTERS[rd], int(imm, 2), REGISTERS[rs1]
+        imm_i = imm[0] * 20 + imm[:12]
+        return PATTERN_LOAD_STORE_JALR, ops[func3], REGISTERS[rd], to_int(imm_i), REGISTERS[rs1]
 
     elif opcode == '0100011':    # 'STORE':
         imm, rs2, rs1, func3, imm2 = com[:-25], com[-25:-20], com[-20:-15], com[-15:-12], com[-12:-7]
@@ -61,23 +65,34 @@ def disassemble_instruction(instruction: bytes):
             '001': 'sh',
             '010': 'sw'
         }
-        return PATTERN_LOAD_STORE_JALR, ops[func3], REGISTERS[rs2], int(imm2, 2), REGISTERS[rs1]
+        imm_s = imm[0] * 12 + imm + imm2
+        return PATTERN_LOAD_STORE_JALR, ops[func3], REGISTERS[rs2], to_int(imm_s), REGISTERS[rs1]
 
     elif opcode == '0010011':    # 'OP-IMM':
         imm, rs1, func3, rd = com[:-20], com[-20:-15], com[-15:-12], com[-12:-7]
+        shamt_i = imm[7:]
 
-        ops = {
-            '000': 'addi',
-            '010': 'slti',
-            '011': 'sltiu',
-            '100': 'xori',
-            '110': 'ori',
-            '111': 'andi',
-        }
-        if func3 in ops:
-            return PATTERN_2_ARGS, ops[func3], REGISTERS[rd], REGISTERS[rs1], to_int(imm)
+        if func3 == '001':
+            return PATTERN_2_ARGS, 'slli', REGISTERS[rd], REGISTERS[rs1], int(shamt_i, 2)
+        elif func3 == '101':
+            if imm[1] == '0':
+                return PATTERN_2_ARGS, 'srli', REGISTERS[rd], REGISTERS[rs1], int(shamt_i, 2)
+            else:
+                return PATTERN_2_ARGS, 'srai', REGISTERS[rd], REGISTERS[rs1], int(shamt_i, 2)
         else:
-            return INVALID_INSTRUCTION
+            ops = {
+                '000': 'addi',
+                '010': 'slti',
+                '011': 'sltiu',
+                '100': 'xori',
+                '110': 'ori',
+                '111': 'andi',
+            }
+            imm_i = imm[0] * 20 + imm[:12]
+            if func3 in ops:
+                return PATTERN_2_ARGS, ops[func3], REGISTERS[rd], REGISTERS[rs1], to_int(imm_i)
+            else:
+                return INVALID_INSTRUCTION
 
     elif opcode == '0110011':    # 'OP':
         opcode2, rs2, rs1, func3, rd = com[:7], com[7:12], com[12:-15], com[-15:-12], com[-12:-7]
@@ -242,28 +257,34 @@ def parse_symtab_section(file_path, header) -> [dict, ..., dict]:
 
 
 def parse_text_section(file_path, header):
-    # print(header)
     instructions = []
     with open(file_path, 'rb') as file:
         file.seek(header['sh_offset'])
         for i in range(header['sh_size'] // 4):
-            byte_instr = file.read(4)[::-1]
-            # print(i, end=' ', file=output)
-            instr = disassemble_instruction(byte_instr)
-            instructions.append((int.from_bytes(byte_instr, 'big'),) + instr)
-            # print(instr, file=output)
-            # print(file=output)
+            byte_instr = file.read(4)
+            instr = disassemble_instruction(byte_instr[::-1])
+            instructions.append((int.from_bytes(byte_instr, 'little'),) + instr)
+
     return instructions
 
 
 def write_disassembly(str_table, symbol_table, instructions, text_header, output):
     symbols = {}
+    symbols_info = {}
     for i in symbol_table:
         symbols[i['st_value']] = read_while_not_null(str_table, i['st_name'])
+        symbols_info[i['st_value']] = i
+
+    # for i in symbols:
+    #     print(hex(i), symbols[i])
 
     cur_address = text_header['sh_addr']
     formatted_instructions = []
-    labels = []
+    labels = {}
+    for i in symbol_table:
+        # if i['st_info'] == 18:
+        labels[i['st_value']] = read_while_not_null(str_table, i['st_name'])
+
     unnamed_label_index = 0
     for i in range(len(instructions)):
         hex_pres, pattern, *args = instructions[i]
@@ -273,27 +294,32 @@ def write_disassembly(str_table, symbol_table, instructions, text_header, output
         else:
             try:
                 if args[-1] == '<>':
-                    label_addr = (args[-2] + cur_address) % (1 << 20)
-                    if label_addr in symbols:
-                        label_name = symbols[label_addr]
+                    label_addr = (args[-2] + cur_address) #% (1 << 16)
+                    if label_addr in labels:
+                        label_name = labels[label_addr]
                     else:
-                        label_name = f'L{unnamed_label_index}'
-                        unnamed_label_index += 1
-                    labels.append((label_addr, label_name))
-                    args[-1] = label_name
+                        if label_addr in symbols:
+                            label_name = symbols[label_addr]
+                            print(symbols_info[label_addr])
+                        else:
+                            label_name = f'L{unnamed_label_index}'
+                            unnamed_label_index += 1
+                        labels[label_addr] = label_name
+
                     args[-2] = label_addr
+                    args[-1] = label_name
                 formatted_instructions.append(pattern % (cur_address, hex_pres, *args))
-                cur_address += 4
 
             except Exception as err:
                 # print(err, pattern, args, file=output)
-                formatted_instructions.append(INVALID_INSTRUCTION)
+                formatted_instructions.append(INVALID_INSTRUCTION[0])
+        cur_address += 4
 
-    labels.sort(reverse=True)
     cur_address: int = text_header['sh_addr']
     for i in formatted_instructions:
-        if labels and labels[-1][0] == cur_address:
-            print(PATTERN_LABEL % labels.pop(), file=output)
+        # print(cur_address, labels)
+        if cur_address in labels:
+            print(PATTERN_LABEL % (cur_address, labels[cur_address]), file=output)
         print(i, file=output)
         cur_address += 4
 
@@ -385,7 +411,7 @@ def write_symtab(str_table, symbol_table, output):
 if __name__ == '__main__':
     # input_file, output_file = sys.argv[1:]
     # input_file, output_file = r'test_data/test_elf', r'test_data/ref_disasm.txt'
-    input_file, output_file = r'test_data/test.elf', r'test_data/test.disasm.txt'
+    # input_file, output_file = r'test_data/test.elf', r'test_data/test.disasm.txt'
     # input_file, output_file = r'test_data/test2.elf', r'test_data/test2.disasm.txt'
     output = open(output_file, 'w')
 

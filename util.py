@@ -16,11 +16,11 @@ def bytes_to_strs(b: bytes):
     return p
 
 
-def to_int(s):
+def to_int(bites_s: str):
     x = 0
     b = 1
-    for i in range(len(s) - 1):
-        x += int(s[~i], 16) * b
+    for i in range(len(bites_s) - 1):
+        x += int(bites_s[~i], 16) * b
         b <<= 1
-    x -= b * int(s[0], 16)
+    x -= b * int(bites_s[0], 16)
     return x
